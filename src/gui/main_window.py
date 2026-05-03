@@ -3,14 +3,16 @@ from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QSplitter, QLabel, QComboBox, QLineEdit, QPushButton,
     QTextEdit, QTableWidget, QTableWidgetItem, QGroupBox,
-    QMessageBox, QTabWidget, QSpinBox, QFileDialog, QStatusBar
+    QMessageBox, QTabWidget, QSpinBox, QFileDialog, QStatusBar,
+    QMenuBar, QMenu
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QFont, QAction
 
 from src.database.connection import DatabaseConnection
 from src.database.metadata import DatabaseMetadata
 from src.text2sql.sql_generator import SQLGenerator
+from src.text2sql.llm_config import LLMConfigManager
 
 import os
 from dotenv import load_dotenv
@@ -66,11 +68,54 @@ class MainWindow(QMainWindow):
         
         self.db_connection = DatabaseConnection()
         self.db_metadata = None
-        self.sql_generator = SQLGenerator()
+        self.llm_config_manager = LLMConfigManager()
+        self.sql_generator = SQLGenerator(llm_config_manager=self.llm_config_manager)
         
         self._load_env()
+        self._init_menu_bar()
         self._init_ui()
         self._init_status_bar()
+    
+    def _init_menu_bar(self):
+        menubar = self.menuBar()
+        
+        settings_menu = menubar.addMenu("设置(&S)")
+        
+        llm_config_action = QAction("大模型配置...", self)
+        llm_config_action.triggered.connect(self._open_llm_config)
+        settings_menu.addAction(llm_config_action)
+        
+        settings_menu.addSeparator()
+        
+        about_action = QAction("关于", self)
+        about_action.triggered.connect(self._show_about)
+        settings_menu.addAction(about_action)
+    
+    def _open_llm_config(self):
+        from src.gui.llm_config_dialog import LLMConfigDialog
+        
+        dialog = LLMConfigDialog(self, self.llm_config_manager)
+        if dialog.exec():
+            self.llm_config_manager = dialog.get_config_manager()
+            self.sql_generator.set_llm_config_manager(self.llm_config_manager)
+            
+            active_config = self.llm_config_manager.get_active_config()
+            if active_config and active_config.api_key:
+                self.status_bar.showMessage(f"已切换到配置: {self.llm_config_manager.active_config_name}")
+    
+    def _show_about(self):
+        QMessageBox.about(
+            self,
+            "关于 Text2SQL",
+            "Text2SQL - 自然语言转SQL工具\n\n"
+            "版本: 1.0\n\n"
+            "功能特性:\n"
+            "- 支持 SQLite、MySQL、PostgreSQL 数据库\n"
+            "- 自然语言转SQL查询\n"
+            "- 支持聚合查询、关联查询、分组查询\n"
+            "- 支持多种大模型平台配置\n"
+            "- 开源免费，持续更新"
+        )
     
     def _load_env(self):
         env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), '.env')
@@ -386,7 +431,7 @@ class MainWindow(QMainWindow):
         try:
             self.db_connection.close_connection()
             self.db_metadata = None
-            self.sql_generator = SQLGenerator()
+            self.sql_generator = SQLGenerator(llm_config_manager=self.llm_config_manager)
             
             self.tables_table.setRowCount(0)
             self.schema_text.clear()
