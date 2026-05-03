@@ -52,13 +52,13 @@ class TableSemanticAnalyzer:
         'description': ['description', '描述', '说明'],
         'content': ['content', '内容', '正文'],
         'id': ['id', '编号', 'ID'],
-        'user_id': ['user_id', '用户编号', '用户ID'],
-        'author_id': ['author_id', '作者编号', '作者ID'],
-        'book_id': ['book_id', '书籍编号', '书籍ID'],
-        'product_id': ['product_id', '产品编号', '产品ID'],
-        'order_id': ['order_id', '订单编号', '订单ID'],
-        'department_id': ['department_id', '部门编号', '部门ID'],
-        'employee_id': ['employee_id', '员工编号', '员工ID'],
+        'user_id': ['user_id', '用户编号', '用户 ID'],
+        'author_id': ['author_id', '作者编号', '作者 ID'],
+        'book_id': ['book_id', '书籍编号', '书籍 ID'],
+        'product_id': ['product_id', '产品编号', '产品 ID'],
+        'order_id': ['order_id', '订单编号', '订单 ID'],
+        'department_id': ['department_id', '部门编号', '部门 ID'],
+        'employee_id': ['employee_id', '员工编号', '员工 ID'],
         'salary': ['salary', '工资', '薪资', '薪水'],
         'position': ['position', '职位', '岗位'],
         'location': ['location', '位置', '地点'],
@@ -138,7 +138,7 @@ class TableSemanticAnalyzer:
         if '排序' in query_lower or 'order by' in query_lower:
             intent['is_order_by'] = True
         
-        limit_match = re.search(r'前(\d+)', natural_query)
+        limit_match = re.search(r'前 (\d+)', natural_query)
         if limit_match:
             intent['is_limit'] = True
             intent['limit_count'] = int(limit_match.group(1))
@@ -151,6 +151,39 @@ class TableSemanticAnalyzer:
             intent['tables'] = tables[:1] if tables else []
         
         return intent
+    
+    @staticmethod
+    def extract_table_names(table_schemas: str) -> List[str]:
+        tables = []
+        lines = table_schemas.split('\n')
+        for line in lines:
+            if line.startswith('表名：'):
+                table_name = line.replace('表名：', '').strip()
+                tables.append(table_name)
+        return tables
+    
+    @staticmethod
+    def extract_columns(table_schemas: str, table_name: str) -> List[str]:
+        columns = []
+        lines = table_schemas.split('\n')
+        in_table = False
+        in_columns = False
+        
+        for line in lines:
+            if line.startswith(f'表名：{table_name}'):
+                in_table = True
+            elif in_table and line.startswith('列名\t'):
+                in_columns = True
+            elif in_table and in_columns and line.startswith('-'):
+                continue
+            elif in_table and in_columns and line.strip() and not line.startswith('主键:') and not line.startswith('外键:'):
+                parts = line.split('\t')
+                if parts:
+                    columns.append(parts[0])
+            elif in_table and (line.startswith('主键:') or line.startswith('外键:') or line.startswith('=')):
+                break
+        
+        return columns
 
 
 class SQLGenerator:
@@ -171,7 +204,7 @@ class SQLGenerator:
                                    sample_data: Optional[Dict[str, List[Dict]]] = None,
                                    db_type: str = "sqlite",
                                    tables_info: Optional[Dict[str, Any]] = None) -> str:
-        tables = self.semantic_analyzer._extract_table_names(table_schemas)
+        tables = TableSemanticAnalyzer.extract_table_names(table_schemas)
         intent = self.semantic_analyzer.analyze_query_intent(natural_query, tables)
         
         prompt = self._build_prompt(natural_query, table_schemas, sample_data, db_type, intent)
@@ -181,24 +214,24 @@ class SQLGenerator:
                        sample_data: Optional[Dict[str, List[Dict]]],
                        db_type: str,
                        intent: Dict[str, Any]) -> str:
-        prompt = f"你是一个专业的SQL工程师。请根据以下数据库表结构，将用户的自然语言查询转换为{db_type.upper()} SQL语句。\n\n"
+        prompt = f"你是一个专业的 SQL 工程师。请根据以下数据库表结构，将用户的自然语言查询转换为{db_type.upper()} SQL 语句。\n\n"
         prompt += "### 重要提示：\n"
         prompt += "1. 仔细分析用户查询中的语义，确保选择正确的表\n"
-        prompt += "2. 例如：查询'作者信息'应该使用authors表，查询'书籍信息'应该使用books表\n"
+        prompt += "2. 例如：查询'作者信息'应该使用 authors 表，查询'书籍信息'应该使用 books 表\n"
         prompt += "3. 不要简单地默认使用第一个表，要根据语义选择最相关的表\n"
-        prompt += "4. 如果查询涉及多个实体，需要使用JOIN进行关联查询\n\n"
+        prompt += "4. 如果查询涉及多个实体，需要使用 JOIN 进行关联查询\n\n"
         
         prompt += "### 查询语义分析结果（仅供参考）:\n"
-        prompt += f"- 可能涉及的表: {intent.get('tables', [])}\n"
-        prompt += f"- 可能涉及的列: {intent.get('columns', [])}\n"
+        prompt += f"- 可能涉及的表：{intent.get('tables', [])}\n"
+        prompt += f"- 可能涉及的列：{intent.get('columns', [])}\n"
         if intent.get('is_aggregate'):
-            prompt += f"- 聚合类型: {intent.get('aggregate_type')}\n"
+            prompt += f"- 聚合类型：{intent.get('aggregate_type')}\n"
         if intent.get('is_join'):
-            prompt += f"- 需要关联查询的表: {intent.get('join_tables', [])}\n"
+            prompt += f"- 需要关联查询的表：{intent.get('join_tables', [])}\n"
         if intent.get('is_group_by'):
             prompt += "- 需要分组查询\n"
         if intent.get('is_limit'):
-            prompt += f"- 需要限制数量: {intent.get('limit_count')}\n"
+            prompt += f"- 需要限制数量：{intent.get('limit_count')}\n"
         prompt += "\n"
         
         prompt += "### 数据库表结构:\n"
@@ -217,13 +250,13 @@ class SQLGenerator:
             prompt += "\n"
         
         prompt += "### 查询要求:\n"
-        prompt += "1. 只返回可执行的SQL语句，不要有任何解释\n"
-        prompt += "2. 支持聚合查询(COUNT, SUM, AVG, MAX, MIN)\n"
-        prompt += "3. 支持关联查询(JOIN, LEFT JOIN, RIGHT JOIN, INNER JOIN)\n"
-        prompt += "4. 支持分组查询(GROUP BY, HAVING)\n"
-        prompt += "5. 支持排序(ORDER BY)和分页(LIMIT/OFFSET)\n"
+        prompt += "1. 只返回可执行的 SQL 语句，不要有任何解释\n"
+        prompt += "2. 支持聚合查询 (COUNT, SUM, AVG, MAX, MIN)\n"
+        prompt += "3. 支持关联查询 (JOIN, LEFT JOIN, RIGHT JOIN, INNER JOIN)\n"
+        prompt += "4. 支持分组查询 (GROUP BY, HAVING)\n"
+        prompt += "5. 支持排序 (ORDER BY) 和分页 (LIMIT/OFFSET)\n"
         prompt += "6. 确保使用正确的表名和列名，从上面的表结构中选择\n"
-        prompt += "7. SQL语句末尾不要加分号\n"
+        prompt += "7. SQL 语句末尾不要加分号\n"
         prompt += f"8. 使用{db_type.upper()}语法\n"
         prompt += "9. 关键：根据用户查询的语义选择正确的表！例如：\n"
         prompt += "   - '查询作者信息' -> SELECT * FROM authors\n"
@@ -231,7 +264,7 @@ class SQLGenerator:
         prompt += "   - '查询作者和他们的书籍' -> SELECT a.*, b.* FROM authors a JOIN books b ON a.id = b.author_id\n\n"
         
         prompt += f"### 用户查询:\n{natural_query}\n\n"
-        prompt += "### 生成的SQL:\n"
+        prompt += "### 生成的 SQL:\n"
         
         return prompt
     
@@ -247,7 +280,7 @@ class SQLGenerator:
                 llm = create_llm_client(llm_config)
                 
                 messages = [
-                    SystemMessage(content="你是一个专业的SQL工程师，擅长将自然语言转换为SQL语句。特别注意：要根据查询语义选择正确的表，不要默认使用第一个表。"),
+                    SystemMessage(content="你是一个专业的 SQL 工程师，擅长将自然语言转换为 SQL 语句。特别注意：要根据查询语义选择正确的表，不要默认使用第一个表。"),
                     HumanMessage(content=prompt)
                 ]
                 
@@ -260,13 +293,13 @@ class SQLGenerator:
             except ImportError:
                 pass
             except Exception as e:
-                print(f"LLM SQL生成失败: {str(e)}")
+                print(f"LLM SQL 生成失败：{str(e)}")
         
         return self._fallback_sql_generation(natural_query, table_schemas, db_type, intent)
     
     def _fallback_sql_generation(self, natural_query: str, table_schemas: str, db_type: str,
                                   intent: Optional[Dict[str, Any]] = None) -> str:
-        tables = self.semantic_analyzer._extract_table_names(table_schemas)
+        tables = TableSemanticAnalyzer.extract_table_names(table_schemas)
         
         if intent is None:
             intent = self.semantic_analyzer.analyze_query_intent(natural_query, tables)
@@ -294,7 +327,7 @@ class SQLGenerator:
         
         if intent.get('is_aggregate'):
             agg_type = intent.get('aggregate_type', 'COUNT')
-            columns = self.semantic_analyzer._extract_columns(table_schemas, main_table)
+            columns = TableSemanticAnalyzer.extract_columns(table_schemas, main_table)
             
             if agg_type == 'COUNT':
                 if "不同" in query_lower or "不重复" in query_lower:
@@ -312,7 +345,7 @@ class SQLGenerator:
                     return f"SELECT {agg_type}({columns[-1]}) FROM {main_table}"
         
         if intent.get('is_group_by'):
-            columns = self.semantic_analyzer._extract_columns(table_schemas, main_table)
+            columns = TableSemanticAnalyzer.extract_columns(table_schemas, main_table)
             if columns:
                 group_col = columns[0]
                 return f"SELECT {group_col}, COUNT(*) FROM {main_table} GROUP BY {group_col}"
@@ -324,8 +357,8 @@ class SQLGenerator:
         return f"SELECT * FROM {main_table} LIMIT 10"
     
     def _find_join_condition(self, table1: str, table2: str, table_schemas: str) -> Optional[str]:
-        table1_cols = self.semantic_analyzer._extract_columns(table_schemas, table1)
-        table2_cols = self.semantic_analyzer._extract_columns(table_schemas, table2)
+        table1_cols = TableSemanticAnalyzer.extract_columns(table_schemas, table1)
+        table2_cols = TableSemanticAnalyzer.extract_columns(table_schemas, table2)
         
         table1_lower = table1.lower().rstrip('s')
         table2_lower = table2.lower().rstrip('s')
@@ -419,37 +452,3 @@ class SQLGenerator:
                 'error': str(e),
                 'sql': sql
             }
-
-
-TableSemanticAnalyzer._extract_table_names = staticmethod(lambda self, table_schemas: [
-    line.replace('表名: ', '').strip()
-    for line in table_schemas.split('\n')
-    if line.startswith('表名: ')
-])
-
-TableSemanticAnalyzer._extract_columns = staticmethod(lambda self, table_schemas, table_name: SQLGenerator()._extract_columns(table_schemas, table_name))
-
-
-def _extract_columns(self, table_schemas: str, table_name: str) -> List[str]:
-    columns = []
-    lines = table_schemas.split('\n')
-    in_table = False
-    in_columns = False
-    
-    for line in lines:
-        if line.startswith(f'表名: {table_name}'):
-            in_table = True
-        elif in_table and line.startswith('列名\t'):
-            in_columns = True
-        elif in_table and in_columns and line.startswith('-'):
-            continue
-        elif in_table and in_columns and line.strip() and not line.startswith('主键:') and not line.startswith('外键:'):
-            parts = line.split('\t')
-            if parts:
-                columns.append(parts[0])
-        elif in_table and (line.startswith('主键:') or line.startswith('外键:') or line.startswith('=')):
-            break
-    
-    return columns
-
-SQLGenerator._extract_columns = _extract_columns
